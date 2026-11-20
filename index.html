@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShavaGo — PWA предзаказ шаурмы (Supabase Live)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS SDK v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            orange: '#FF6B00',
+                            amber: '#FF9500',
+                            dark: '#121214',
+                            card: '#1C1C1F',
+                            elevated: '#26262B'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes pulseRing {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .animate-slide-up {
+            animation: slideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.2s ease-out forwards;
+        }
+        .pulse-glow {
+            animation: pulseRing 2s infinite ease-in-out;
+        }
+
+        .glass {
+            background: rgba(18, 18, 20, 0.82);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+    </style>
+</head>
+<body class="bg-[#09090B] text-white min-h-screen flex flex-col items-center justify-between py-4 px-2 sm:px-4 selection:bg-brand-orange selection:text-white">
+
+    <!-- Верхняя панель управления прототипом + Статус Supabase -->
+    <header class="w-full max-w-md mb-4 flex flex-col items-center gap-2.5 z-30">
+        <div class="flex items-center justify-between w-full px-1">
+            <div class="flex items-center gap-2 text-xs text-zinc-400">
+                <span id="db-status-dot" class="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                <span id="db-status-text" class="font-medium">Подключение к Supabase...</span>
+            </div>
+            <span class="text-[11px] font-mono text-zinc-500">Realtime Sync</span>
+        </div>
+
+        <!-- Переключатель режимов -->
+        <div class="bg-[#1C1C1F] p-1.5 rounded-2xl border border-white/10 flex items-center w-full shadow-xl">
+            <button id="btn-mode-client" onclick="switchView('client')" 
+                class="flex-1 py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all bg-brand-orange text-white shadow-lg shadow-brand-orange/25">
+                <i data-lucide="smartphone" class="w-4 h-4"></i>
+                <span>Клиент (PWA)</span>
+            </button>
+            <button id="btn-mode-chef" onclick="switchView('chef')" 
+                class="flex-1 py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all text-zinc-400 hover:text-white relative">
+                <i data-lucide="flame" class="w-4 h-4"></i>
+                <span>Терминал Повара</span>
+                <span id="chef-badge" class="hidden absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center shadow-md">1</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Мобильный корпус устройства -->
+    <main class="relative w-full max-w-[400px] h-[780px] max-h-[84vh] bg-brand-dark rounded-[40px] border-[6px] border-[#27272A] shadow-[0_25px_70px_-15px_rgba(255,107,0,0.22)] overflow-hidden flex flex-col">
+        
+        <!-- Верхняя системная челка / статус-бар PWA -->
+        <div class="w-full px-6 pt-2.5 pb-1.5 flex items-center justify-between text-[11px] font-semibold text-zinc-300 bg-brand-dark z-20 select-none">
+            <span>13:42</span>
+            <div class="w-24 h-5 bg-black rounded-full flex items-center justify-end px-2">
+                <div class="w-2.5 h-2.5 rounded-full bg-[#1a1a2e] border border-zinc-800"></div>
+            </div>
+            <div class="flex items-center gap-1.5">
+                <i data-lucide="wifi" class="w-3.5 h-3.5"></i>
+                <i data-lucide="battery-full" class="w-4 h-4 text-emerald-400"></i>
+            </div>
+        </div>
+
+        <!-- ========================================================= -->
+        <!-- ЭКРАН 1: КЛИЕНТСКОЕ PWA ПРИЛОЖЕНИЕ                        -->
+        <!-- ========================================================= -->
+        <div id="view-client" class="flex-1 flex flex-col overflow-hidden relative">
+            
+            <!-- Баннер установки PWA -->
+            <div id="pwa-install-banner" class="mx-4 mt-1 mb-2 px-3 py-2 rounded-2xl bg-gradient-to-r from-brand-orange/20 to-amber-500/10 border border-brand-orange/30 flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-brand-orange flex items-center justify-center text-white font-black text-sm shrink-0 shadow-md">
+                        🌯
+                    </div>
+                    <div class="leading-tight">
+                        <p class="text-xs font-bold text-white">ShavaGo как приложение</p>
+                        <p class="text-[10px] text-zinc-300">Заказ в 2 тапа без очереди</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1">
+                    <button onclick="installPWA()" class="px-2.5 py-1.5 rounded-xl bg-brand-orange hover:bg-orange-500 text-white text-[11px] font-bold transition active:scale-95">
+                        На экран
+                    </button>
+                    <button onclick="document.getElementById('pwa-install-banner').remove()" class="p-1 text-zinc-400 hover:text-white">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Sticky Шапка клиента -->
+            <div class="px-4 py-2 glass sticky top-0 z-10 flex items-center justify-between border-b border-white/5">
+                <button onclick="openLocationModal()" class="flex items-center gap-2 text-left group">
+                    <div class="w-9 h-9 rounded-2xl bg-brand-card border border-white/10 flex items-center justify-center text-brand-orange group-hover:border-brand-orange/50 transition">
+                        <i data-lucide="map-pin" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-[11px] text-zinc-400 font-medium">Точка самовывоза</span>
+                            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-brand-orange"></i>
+                        </div>
+                        <p id="current-spot-address" class="text-xs font-bold text-white truncate max-w-[205px]">ул. Образцова, 9с9</p>
+                    </div>
+                </button>
+
+                <button onclick="showActiveOrderModal()" class="relative w-9 h-9 rounded-2xl bg-brand-card border border-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition">
+                    <i data-lucide="receipt" class="w-4 h-4"></i>
+                    <span id="header-order-dot" class="hidden absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-orange"></span>
+                </button>
+            </div>
+
+            <!-- Скроллируемый контент клиента -->
+            <div class="flex-1 overflow-y-auto no-scrollbar pb-28">
+                
+                <!-- Плашка активного заказа -->
+                <div id="live-order-widget" onclick="showActiveOrderModal()" class="hidden mx-4 mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-[#261910] to-[#1C1C1F] border border-brand-orange/50 cursor-pointer shadow-lg shadow-brand-orange/10 transition active:scale-[0.99]">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 rounded-lg bg-brand-orange text-white font-mono text-xs font-extrabold" id="widget-order-code">#409</span>
+                            <span class="text-xs font-bold text-white" id="widget-order-status">Принят точкой</span>
+                        </div>
+                        <span class="text-xs font-mono font-bold text-brand-amber" id="widget-order-timer">~10 мин</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden flex gap-1">
+                        <div id="prog-1" class="h-full w-1/3 bg-brand-orange rounded-full transition-all"></div>
+                        <div id="prog-2" class="h-full w-1/3 bg-zinc-700 rounded-full transition-all"></div>
+                        <div id="prog-3" class="h-full w-1/3 bg-zinc-700 rounded-full transition-all"></div>
+                    </div>
+                    <p class="text-[11px] text-zinc-400 mt-1.5 flex items-center justify-between">
+                        <span>Нажмите, чтобы открыть код выдачи</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-brand-orange"></i>
+                    </p>
+                </div>
+
+                <!-- Карточка выбранной шаурмечной -->
+                <div class="mx-4 mt-3 p-3.5 rounded-2xl bg-brand-card border border-white/10 relative overflow-hidden">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h2 id="spot-title" class="font-extrabold text-base text-white">Шаурма №1 у Универа</h2>
+                                <span class="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-[11px] font-bold flex items-center gap-0.5">
+                                    4.9 <i data-lucide="star" class="w-3 h-3 fill-amber-400"></i>
+                                </span>
+                            </div>
+                            <p id="spot-meta" class="text-xs text-zinc-400 mt-0.5">250 м от вас • Без комиссии агрегаторов</p>
+                        </div>
+                        <button onclick="openLocationModal()" class="text-xs font-semibold text-brand-orange hover:underline">
+                            Сменить
+                        </button>
+                    </div>
+                    <div class="mt-2.5 pt-2.5 border-t border-white/5 flex items-center justify-between text-[11px]">
+                        <span class="text-zinc-400">Среднее время готовки:</span>
+                        <span id="spot-wait-time" class="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 font-bold">~5 мин</span>
+                    </div>
+                </div>
+
+                <!-- Категории меню (горизонтальный скролл) -->
+                <div class="mt-4 relative group">
+                    <button id="cat-scroll-left" type="button" onclick="scrollCategories(-140)" aria-label="Прокрутить влево"
+                        class="hidden absolute left-1.5 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-zinc-900/95 border border-white/15 text-white shadow-lg items-center justify-center hover:bg-brand-orange transition">
+                        <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                    </button>
+
+                    <div id="category-pills" 
+                        class="flex items-center gap-2 overflow-x-auto no-scrollbar px-4 py-1 cursor-grab active:cursor-grabbing select-none touch-pan-x scroll-smooth">
+                    </div>
+
+                    <button id="cat-scroll-right" type="button" onclick="scrollCategories(140)" aria-label="Прокрутить вправо"
+                        class="hidden absolute right-1.5 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-zinc-900/95 border border-white/15 text-white shadow-lg items-center justify-center hover:bg-brand-orange transition">
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <!-- Список блюд -->
+                <div class="px-4 mt-3">
+                    <div class="flex items-center justify-between mb-2.5">
+                        <h3 class="text-sm font-extrabold text-zinc-200 tracking-tight">Меню точки</h3>
+                        <span id="menu-source-badge" class="text-[10px] text-zinc-500 font-mono"></span>
+                    </div>
+                    <div id="menu-grid" class="grid grid-cols-1 gap-3">
+                        <div class="p-6 rounded-2xl bg-brand-card border border-white/5 text-center text-xs text-zinc-400">
+                            Загружаем меню...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Липкая панель корзины внизу -->
+            <div id="sticky-cart-bar" class="hidden absolute bottom-3 left-4 right-4 z-20 animate-slide-up">
+                <button onclick="openCheckoutDrawer()" class="w-full py-3.5 px-4 rounded-2xl bg-brand-orange hover:bg-orange-500 text-white font-bold shadow-xl shadow-brand-orange/30 flex items-center justify-between transition active:scale-[0.98]">
+                    <div class="flex items-center gap-2.5">
+                        <span id="cart-count-badge" class="w-6 h-6 rounded-lg bg-black/25 text-xs font-extrabold flex items-center justify-center">1</span>
+                        <span class="text-sm">Забрать без очереди</span>
+                    </div>
+                    <span id="cart-total-price" class="font-mono text-base font-extrabold">260 ₽</span>
+                </button>
+            </div>
+
+            <!-- BOTTOM SHEET: КАСТОМИЗАЦИЯ ШАУРМЫ -->
+            <div id="customizer-modal" class="hidden absolute inset-0 z-40 flex flex-col justify-end">
+                <div onclick="closeCustomizer()" class="absolute inset-0 bg-black/75 backdrop-blur-xs animate-fade-in"></div>
+                <div class="relative bg-[#18181B] rounded-t-3xl border-t border-white/15 p-5 max-h-[88%] flex flex-col animate-slide-up">
+                    <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-3"></div>
+                    
+                    <div class="flex items-start justify-between gap-3 pb-3 border-b border-white/10">
+                        <div class="flex items-center gap-3">
+                            <div id="cust-emoji" class="w-14 h-14 rounded-2xl bg-brand-elevated flex items-center justify-center text-3xl shrink-0">🌯</div>
+                            <div>
+                                <h3 id="cust-title" class="font-extrabold text-base text-white">Классическая с курицей</h3>
+                                <p id="cust-desc" class="text-xs text-zinc-400 line-clamp-2 mt-0.5">Описание блюда</p>
+                            </div>
+                        </div>
+                        <button onclick="closeCustomizer()" class="p-1.5 rounded-xl bg-zinc-800 text-zinc-400 hover:text-white">
+                            <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+
+                    <div class="overflow-y-auto no-scrollbar py-3 space-y-4 flex-1">
+                        <!-- Размер -->
+                        <div>
+                            <p class="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">Размер порции</p>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" onclick="selectSize('std')" id="size-std" class="p-2.5 rounded-xl border border-brand-orange bg-brand-orange/15 text-left transition">
+                                    <div class="text-xs font-bold text-white">Стандарт</div>
+                                    <div class="text-[11px] text-zinc-400">420 г • База</div>
+                                </button>
+                                <button type="button" onclick="selectSize('xl')" id="size-xl" class="p-2.5 rounded-xl border border-white/10 bg-brand-card text-left transition">
+                                    <div class="text-xs font-bold text-white">XL Двойное мясо</div>
+                                    <div class="text-[11px] text-brand-amber font-semibold">+60 ₽ (580 г)</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Соус -->
+                        <div>
+                            <p class="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">Соус на выбор</p>
+                            <div id="sauce-options" class="grid grid-cols-2 gap-2"></div>
+                        </div>
+
+                        <!-- Добавки -->
+                        <div>
+                            <p class="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">Добавить внутрь</p>
+                            <div id="addon-options" class="space-y-2"></div>
+                        </div>
+
+                        <!-- Убрать лук -->
+                        <div class="pt-1">
+                            <label class="flex items-center justify-between p-3 rounded-xl bg-brand-card border border-white/10 cursor-pointer">
+                                <div class="flex items-center gap-2.5">
+                                    <span class="text-base">🧅</span>
+                                    <span class="text-xs font-bold text-white">Убрать красный лук</span>
+                                </div>
+                                <input type="checkbox" id="cust-no-onion" class="w-5 h-5 accent-brand-orange rounded">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-white/10">
+                        <button onclick="confirmAddToCart()" class="w-full py-3.5 rounded-2xl bg-brand-orange hover:bg-orange-500 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-lg shadow-brand-orange/25 transition active:scale-[0.98]">
+                            <span>Добавить в заказ</span>
+                            <span>•</span>
+                            <span id="cust-final-price" class="font-mono">260 ₽</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BOTTOM SHEET: ОФОРМЛЕНИЕ ПРЕДЗАКАЗА (CHECKOUT) -->
+            <div id="checkout-modal" class="hidden absolute inset-0 z-40 flex flex-col justify-end">
+                <div onclick="closeCheckoutDrawer()" class="absolute inset-0 bg-black/75 backdrop-blur-xs animate-fade-in"></div>
+                <div class="relative bg-[#18181B] rounded-t-3xl border-t border-white/15 p-5 max-h-[90%] flex flex-col animate-slide-up">
+                    <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-3"></div>
+                    
+                    <div class="flex items-center justify-between pb-3 border-b border-white/10">
+                        <h3 class="font-extrabold text-base text-white">Ваш предзаказ</h3>
+                        <button onclick="clearCart()" class="text-xs text-zinc-400 hover:text-red-400">Очистить</button>
+                    </div>
+
+                    <div class="overflow-y-auto no-scrollbar py-3 space-y-4 flex-1">
+                        <div id="checkout-items-list" class="space-y-2.5"></div>
+
+                        <div>
+                            <p class="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">К какому времени скрутить?</p>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button type="button" onclick="selectPickupTime('Как можно скорее (~10 мин)', this)" class="pickup-time-btn p-2 rounded-xl border border-brand-orange bg-brand-orange/15 text-center">
+                                    <div class="text-xs font-extrabold text-white">Скорее</div>
+                                    <div class="text-[10px] text-brand-amber">~10 мин</div>
+                                </button>
+                                <button type="button" onclick="selectPickupTime('Через 20 мин', this)" class="pickup-time-btn p-2 rounded-xl border border-white/10 bg-brand-card text-center">
+                                    <div class="text-xs font-bold text-white">Через 20м</div>
+                                    <div class="text-[10px] text-zinc-400">К перерыву</div>
+                                </button>
+                                <button type="button" onclick="selectPickupTime('Через 30 мин', this)" class="pickup-time-btn p-2 rounded-xl border border-white/10 bg-brand-card text-center">
+                                    <div class="text-xs font-bold text-white">Через 30м</div>
+                                    <div class="text-[10px] text-zinc-400">По пути</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <p class="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">Оплата онлайн (без очереди на кассе)</p>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" onclick="selectPayment('sbp')" id="pay-sbp" class="p-2.5 rounded-xl border border-brand-orange bg-brand-orange/15 flex items-center gap-2">
+                                    <span class="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center">СБП</span>
+                                    <span class="text-xs font-bold text-white">Быстрый платеж</span>
+                                </button>
+                                <button type="button" onclick="selectPayment('card')" id="pay-card" class="p-2.5 rounded-xl border border-white/10 bg-brand-card flex items-center gap-2">
+                                    <i data-lucide="credit-card" class="w-4 h-4 text-zinc-300"></i>
+                                    <span class="text-xs font-bold text-white">Картой •• 4812</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-white/10">
+                        <button id="btn-submit-order" onclick="placeOrder()" class="w-full py-3.5 rounded-2xl bg-brand-orange hover:bg-orange-500 disabled:opacity-50 text-white font-extrabold text-sm flex items-center justify-between px-5 shadow-lg shadow-brand-orange/30 transition active:scale-[0.98]">
+                            <span>Оплатить и отправить повару</span>
+                            <span id="checkout-pay-btn-price" class="font-mono text-base">260 ₽</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ЭКРАН ТРЕКЕРА ЗАКАЗА (LIVE TRACKER) -->
+            <div id="tracker-modal" class="hidden absolute inset-0 z-50 bg-brand-dark flex flex-col p-5 animate-slide-up">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-zinc-400 uppercase tracking-wider">Статус предзаказа</span>
+                    <button onclick="closeTrackerModal()" class="p-2 rounded-xl bg-brand-card text-zinc-300 hover:text-white">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <div class="my-auto flex flex-col items-center text-center">
+                    <div class="relative mb-5">
+                        <div class="absolute inset-0 bg-brand-orange/25 rounded-3xl blur-xl pulse-glow"></div>
+                        <div class="relative px-8 py-5 rounded-3xl bg-brand-card border-2 border-brand-orange">
+                            <p class="text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Код выдачи у окна</p>
+                            <div id="tracker-code" class="font-mono text-5xl font-black text-white tracking-wider">#409</div>
+                        </div>
+                    </div>
+
+                    <h2 id="tracker-headline" class="text-xl font-extrabold text-white">Заказ передан на гриль</h2>
+                    <p id="tracker-subtext" class="text-xs text-zinc-400 mt-1 max-w-[260px]">Повар уже видит ваш заказ на планшете. Подойдите к окну выдачи без очереди.</p>
+
+                    <div class="w-full mt-7 bg-brand-card rounded-2xl p-4 border border-white/10 text-left space-y-4">
+                        <div class="flex items-center gap-3" id="step-new">
+                            <div class="w-7 h-7 rounded-full bg-brand-orange text-white flex items-center justify-center shrink-0">
+                                <i data-lucide="check" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-white">Заказ оплачен и принят</p>
+                                <p class="text-[11px] text-zinc-400">Очередь пройдена автоматически</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-3 opacity-40" id="step-cooking">
+                            <div class="w-7 h-7 rounded-full bg-zinc-700 text-white flex items-center justify-center shrink-0">
+                                <i data-lucide="flame" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-white">Крутим и жарим на гриле</p>
+                                <p class="text-[11px] text-zinc-400">Собираем с вашими добавками</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-3 opacity-40" id="step-ready">
+                            <div class="w-7 h-7 rounded-full bg-zinc-700 text-white flex items-center justify-center shrink-0">
+                                <i data-lucide="shopping-bag" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-white">Готово к выдаче!</p>
+                                <p class="text-[11px] text-zinc-400">Назовите код на выдаче и забирайте</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300">
+                        ⚡ Переключитесь сверху на <strong>«Терминал Повара»</strong>, чтобы принять заказ и изменить его статус!
+                    </div>
+                </div>
+
+                <button onclick="closeTrackerModal()" class="w-full py-3.5 rounded-2xl bg-brand-card hover:bg-zinc-800 border border-white/10 text-white font-bold text-sm">
+                    Вернуться в меню
+                </button>
+            </div>
+
+            <!-- МОДАЛКА ВЫБОРА ТОЧКИ -->
+            <div id="location-modal" class="hidden absolute inset-0 z-40 flex flex-col justify-end">
+                <div onclick="closeLocationModal()" class="absolute inset-0 bg-black/75 backdrop-blur-xs"></div>
+                <div class="relative bg-[#18181B] rounded-t-3xl border-t border-white/15 p-5 animate-slide-up">
+                    <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-3"></div>
+                    <h3 class="font-extrabold text-base text-white mb-3">Выберите точку из базы</h3>
+                    <div id="spots-list-container" class="space-y-2.5"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================================= -->
+        <!-- ЭКРАН 2: ТЕРМИНАЛ ПОВАРА / ВЛАДЕЛЬЦА ТОЧКИ (PWA)          -->
+        <!-- ========================================================= -->
+        <div id="view-chef" class="hidden flex-1 flex flex-col overflow-hidden bg-[#0E0E10]">
+            
+            <!-- Шапка планшета повара -->
+            <div class="px-4 py-3 bg-[#18181B] border-b border-white/10 flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <h2 class="text-sm font-black text-white tracking-tight">ТЕРМИНАЛ ТОЧКИ</h2>
+                    </div>
+                    <p id="chef-spot-subtitle" class="text-[11px] text-zinc-400 truncate max-w-[180px]">Шаурма №1 у Универа</p>
+                </div>
+
+                <div class="flex items-center gap-1.5">
+                    <button onclick="playNotificationChime()" title="Проверить звук уведомления" class="p-2 rounded-xl bg-brand-card border border-white/10 text-zinc-300 hover:text-brand-orange transition">
+                        <i data-lucide="volume-2" class="w-4 h-4"></i>
+                    </button>
+                    <div class="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-right">
+                        <div class="text-[10px] font-extrabold text-emerald-400 uppercase">Подписка: Активна</div>
+                        <div class="text-[10px] text-zinc-300 font-mono">0% комиссии</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Сводка очереди для повара -->
+            <div class="px-4 py-2.5 bg-[#141417] border-b border-white/5 flex items-center justify-between text-xs">
+                <span class="text-zinc-400 font-medium">Активные предзаказы:</span>
+                <div class="flex items-center gap-2">
+                    <span id="chef-completed-count" class="text-[11px] text-zinc-500 font-mono">Выдано: 0</span>
+                    <span id="chef-active-count" class="px-2 py-0.5 rounded-md bg-brand-orange/20 text-brand-orange font-mono font-bold">0 в работе</span>
+                </div>
+            </div>
+
+            <!-- Лента тикетов заказов для повара -->
+            <div id="chef-orders-list" class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-3.5">
+                <div class="p-8 text-center text-xs text-zinc-500">Заказов пока нет</div>
+            </div>
+
+            <!-- Нижняя панель управления сменой -->
+            <div class="p-3 bg-[#18181B] border-t border-white/10 flex items-center justify-between text-[11px] text-zinc-400">
+                <span>Статус базы: <strong id="chef-db-badge" class="text-emerald-400">Live</strong></span>
+                <button onclick="fetchOrdersFromDB()" class="px-2.5 py-1 rounded-lg bg-brand-card hover:bg-zinc-800 text-white font-bold border border-white/10 flex items-center gap-1 transition">
+                    <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                    <span>Обновить</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Всплывающее уведомление (Toast) -->
+        <div id="toast-notification" class="hidden absolute top-14 left-4 right-4 z-50 px-4 py-3 rounded-2xl bg-zinc-900/95 border border-brand-orange/50 text-white text-xs font-bold shadow-2xl flex items-center gap-2.5 animate-fade-in">
+            <span class="text-base">🔔</span>
+            <span id="toast-text">Уведомление</span>
+        </div>
+
+    </main>
+
+    <script>
+        // ==========================================
+        // ПОДКЛЮЧЕНИЕ К SUPABASE (LEGACY ANON JWT)
+        // ==========================================
+        const SUPABASE_URL = 'https://vqlezjlzztotbpkllcma.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxbGV6amx6enRvdGJwa2xsY21hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUxODM3NTAsImV4cCI6MjExMDc1OTc1MH0.Zc4sJIUhCoRv9EEJNXAyZQTYCYB_HqlvlQFyVNpIrVY';
+        
+        let db = null;
+        try {
+            if (window.supabase) {
+                db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+                    auth: { persistSession: false }
+                });
+            }
+        } catch (e) {
+            db = null;
+        }
+
+        // ==========================================
+        // БАЗОВЫЕ ДАННЫЕ И ФОЛБЭК МЕНЮ
+        // ==========================================
+        const FALLBACK_MENU = [
+            {
+                id: 'fallback-1',
+                title: 'Классическая с курицей',
+                category: 'Классика',
+                price: 260,
+                emoji: '🌯',
+                tag: 'Хит у ВУЗа',
+                description: 'Сочное филе с вертела, свежие овощи, фирменный чесночный соус в тонком лаваше.'
+            },
+            {
+                id: 'fallback-2',
+                title: 'Сырная XL',
+                category: 'Сырная',
+                price: 320,
+                emoji: '🧀',
+                tag: 'Топ продаж',
+                description: 'Двойной чеддер, сырный лаваш, курица гриль, томаты, маринованные огурчики.'
+            },
+            {
+                id: 'fallback-3',
+                title: 'На углях с говядиной',
+                category: 'На углях',
+                price: 360,
+                emoji: '🔥',
+                tag: 'Дымок',
+                description: 'Мраморная говядина с дымком, красный лук, кинза, томатный соус с аджикой.'
+            },
+            {
+                id: 'fallback-4',
+                title: 'Острая Мексиканская',
+                category: 'Классика',
+                price: 290,
+                emoji: '🌶️',
+                tag: 'Остро',
+                description: 'Курица, халапеньо, кукуруза, фасоль, острый соус сальса.'
+            }
+        ];
+
+        const SAUCES = ['Чесночный', 'Томатный с дымком', 'Сырный', 'Острый Сальса'];
+
+        const ADDONS = [
+            { name: 'Перчики Халапеньо', price: 35 },
+            { name: 'Двойной сыр Чеддер', price: 50 },
+            { name: 'Картофель Фри внутрь', price: 45 },
+            { name: 'Маринованные огурчики', price: 30 }
+        ];
+
+        // ==========================================
+        // СОСТОЯНИЕ ПРИЛОЖЕНИЯ (STATE)
+        // ==========================================
+        const state = {
+            currentView: 'client',
+            spots: [],
+            activeSpot: {
+                id: 'local-spot-1',
+                name: 'Шаурма №1 у Универа',
+                address: 'ул. Образцова, 9с9'
+            },
+            menuItems: FALLBACK_MENU,
+            categories: ['Все', 'Классика', 'Сырная', 'На углях'],
+            selectedCategory: 'Все',
+            cart: [],
+            pickupTime: 'Как можно скорее (~10 мин)',
+            paymentMethod: 'sbp',
+            customizingItem: null,
+            customConfig: {
+                size: 'std',
+                sauce: 'Чесночный',
+                addons: [],
+                noOnion: false
+            },
+            orders: [],
+            trackedOrderId: localStorage.getItem('shavago_active_order_id') || null,
+            isSandboxOffline: false
+        };
+
+        let isCategoryDragging = false;
+
+        // ==========================================
+        // ПЕРЕКЛЮЧЕНИЕ РЕЖИМОВ И УВЕДОМЛЕНИЯ
+        // ==========================================
+        function switchView(view) {
+            state.currentView = view;
+            const clientEl = document.getElementById('view-client');
+            const chefEl = document.getElementById('view-chef');
+            const btnClient = document.getElementById('btn-mode-client');
+            const btnChef = document.getElementById('btn-mode-chef');
+
+            if (view === 'client') {
+                clientEl.classList.remove('hidden');
+                chefEl.classList.add('hidden');
+                btnClient.className = 'flex-1 py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all bg-brand-orange text-white shadow-lg shadow-brand-orange/25';
+                btnChef.className = 'flex-1 py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all text-zinc-400 hover:text-white relative';
+                syncUserOrderUI();
+            } else {
+                clientEl.classList.add('hidden');
+                chefEl.classList.remove('hidden');
+                btnChef.className = 'flex-1 py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all bg-brand-orange text-white shadow-lg shadow-brand-orange/25 relative';
+                btnClient.className = 'flex-1 py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all text-zinc-400 hover:text-white';
+                renderChefOrders();
+            }
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function installPWA() {
+            showToast('Нажмите «Поделиться» → «На экран Домой» в браузере');
+        }
+
+        let toastTimer = null;
+        function showToast(message) {
+            const toast = document.getElementById('toast-notification');
+            const text = document.getElementById('toast-text');
+            if (!toast || !text) return;
+            text.textContent = message;
+            toast.classList.remove('hidden');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3200);
+        }
+
+        function playNotificationChime() {
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                const ctx = new AudioCtx();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+                osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12); // A5
+                gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.45);
+            } catch (e) {
+                // Игнорируем ограничения автовоспроизведения звука
+            }
+        }
+
+        function setConnectionStatus(isOnline, label) {
+            const dot = document.getElementById('db-status-dot');
+            const text = document.getElementById('db-status-text');
+            const chefBadge = document.getElementById('chef-db-badge');
+            if (dot) {
+                dot.className = isOnline
+                    ? 'inline-block w-2 h-2 rounded-full bg-emerald-500'
+                    : 'inline-block w-2 h-2 rounded-full bg-amber-500';
+            }
+            if (text) text.textContent = label;
+            if (chefBadge) {
+                chefBadge.textContent = isOnline ? 'Supabase Live' : 'Локальный режим';
+                chefBadge.className = isOnline ? 'text-emerald-400' : 'text-amber-400';
+            }
+        }
+
+        function updateSpotHeaderUI() {
+            const addrEl = document.getElementById('current-spot-address');
+            const titleEl = document.getElementById('spot-title');
+            const chefSub = document.getElementById('chef-spot-subtitle');
+            if (addrEl) addrEl.textContent = state.activeSpot.address;
+            if (titleEl) titleEl.textContent = state.activeSpot.name;
+            if (chefSub) chefSub.textContent = state.activeSpot.name;
+        }
+
+        function loadLocalFallbackOrders() {
+            try {
+                const saved = JSON.parse(localStorage.getItem('shavago_local_orders') || '[]');
+                state.orders = saved;
+            } catch (e) {
+                state.orders = [];
+            }
+            renderChefOrders();
+            syncUserOrderUI();
+        }
+
+        function saveLocalFallbackOrders() {
+            try {
+                localStorage.setItem('shavago_local_orders', JSON.stringify(state.orders));
+            } catch (e) {}
+        }
+
+        // ==========================================
+        // ИНИЦИАЛИЗАЦИЯ И ЗАГРУЗКА ДАННЫХ ИЗ SUPABASE
+        // ==========================================
+        async function initSupabaseData() {
+            state.spots = [state.activeSpot];
+            updateSpotHeaderUI();
+            renderCategories();
+            renderMenu();
+
+            if (!db) {
+                state.isSandboxOffline = true;
+                setConnectionStatus(false, 'Ошибка SDK Supabase');
+                loadLocalFallbackOrders();
+                return;
+            }
+
+            try {
+                // 1. Загружаем список активных точек
+                const { data: spotsData, error: spotsError } = await db
+                    .from('spots')
+                    .select('*')
+                    .eq('is_active', true);
+
+                if (spotsError) throw spotsError;
+
+                if (spotsData && spotsData.length > 0) {
+                    state.spots = spotsData;
+                    state.activeSpot = spotsData[0];
+                    updateSpotHeaderUI();
+                }
+
+                // 2. Загружаем меню для выбранной точки
+                await loadMenuForSpot(state.activeSpot.id);
+
+                // 3. Загружаем текущие заказы
+                await fetchOrdersFromDB();
+
+                state.isSandboxOffline = false;
+                setConnectionStatus(true, 'Supabase Online');
+                subscribeToRealtimeOrders();
+            } catch (err) {
+                console.error('Supabase connection error:', err);
+                state.isSandboxOffline = true;
+                const isSandbox = window.location.protocol === 'blob:' || window.location.href.includes('scf.usercontent.goog');
+                const errMsg = isSandbox ? 'Песочница (Локальный режим)' : (err?.message || 'Нет доступа к сети');
+                setConnectionStatus(false, errMsg);
+                const badge = document.getElementById('menu-source-badge');
+                if (badge) badge.textContent = 'Локальное меню';
+                loadLocalFallbackOrders();
+            }
+        }
+
+        async function loadMenuForSpot(spotId) {
+            const badge = document.getElementById('menu-source-badge');
+            if (!db || !spotId || String(spotId).startsWith('local-')) {
+                state.menuItems = FALLBACK_MENU;
+                if (badge) badge.textContent = 'Локальное меню';
+                renderCategories();
+                renderMenu();
+                return;
+            }
+
+            try {
+                const { data, error } = await db
+                    .from('menu_items')
+                    .select('*')
+                    .eq('spot_id', spotId);
+
+                if (error) throw error;
+
+                if (data && data.length > 0) {
+                    const emojiMap = { 'Классика': '🌯', 'Сырная': '🧀', 'На углях': '🔥' };
+                    state.menuItems = data.map(item => ({
+                        ...item,
+                        emoji: emojiMap[item.category] || '🥙',
+                        tag: item.category
+                    }));
+                    const dynamicCats = ['Все', ...new Set(state.menuItems.map(i => i.category))];
+                    state.categories = dynamicCats;
+                    if (badge) badge.textContent = 'Supabase DB';
+                } else {
+                    state.menuItems = FALLBACK_MENU;
+                    if (badge) badge.textContent = 'Базовое меню';
+                }
+            } catch (e) {
+                state.menuItems = FALLBACK_MENU;
+                if (badge) badge.textContent = 'Локальное меню';
+            }
+
+            renderCategories();
+            renderMenu();
+        }
+
+        let pollingIntervalId = null;
+        function startOrdersPolling() {
+            if (pollingIntervalId || state.isSandboxOffline) return;
+            pollingIntervalId = setInterval(() => {
+                if (!state.isSandboxOffline) fetchOrdersFromDB();
+            }, 3000);
+        }
+
+        function subscribeToRealtimeOrders() {
+            if (state.isSandboxOffline || !db) return;
+            try {
+                db.channel('public:orders')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+                        fetchOrdersFromDB();
+                    })
+                    .subscribe((status) => {
+                        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                            startOrdersPolling();
+                        }
+                    });
+            } catch (e) {
+                startOrdersPolling();
+            }
+            // Дополнительный фоновый опрос для 100% надежности доставки статусов
+            startOrdersPolling();
+        }
+
+        async function fetchOrdersFromDB() {
+            if (state.isSandboxOffline || !db) {
+                loadLocalFallbackOrders();
+                return;
+            }
+            try {
+                const { data, error } = await db
+                    .from('orders')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(30);
+
+                if (error) throw error;
+
+                const incomingOrders = data || [];
+                const prevNewCount = state.orders.filter(o => o.status === 'new').length;
+                const nextNewCount = incomingOrders.filter(o => o.status === 'new').length;
+
+                if (nextNewCount > prevNewCount && state.orders.length > 0) {
+                    playNotificationChime();
+                    showToast('Новый заказ поступил в очередь!');
+                }
+
+                state.orders = incomingOrders;
+                renderChefOrders();
+                syncUserOrderUI();
+            } catch (err) {
+                console.warn('Ошибка фонового обновления заказов:', err);
+            }
+        }
+
+        // ==========================================
+        // КАТЕГОРИИ И МЕНЮ КЛИЕНТА
+        // ==========================================
+        function renderCategories() {
+            const container = document.getElementById('category-pills');
+            if (!container) return;
+            container.innerHTML = state.categories.map(cat => {
+                const active = state.selectedCategory === cat;
+                return `
+                    <button type="button" onclick="selectCategory('${cat}')" 
+                        class="px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition ${
+                            active 
+                                ? 'bg-brand-orange text-white shadow-md shadow-brand-orange/25' 
+                                : 'bg-brand-card border border-white/10 text-zinc-300 hover:text-white'
+                        }">
+                        ${cat}
+                    </button>
+                `;
+            }).join('');
+            updateCategoryScrollButtons();
+        }
+
+        function selectCategory(cat) {
+            if (isCategoryDragging) return;
+            state.selectedCategory = cat;
+            renderCategories();
+            renderMenu();
+        }
+
+        function scrollCategories(offset) {
+            const el = document.getElementById('category-pills');
+            if (el) el.scrollBy({ left: offset, behavior: 'smooth' });
+        }
+
+        function updateCategoryScrollButtons() {
+            const el = document.getElementById('category-pills');
+            const leftBtn = document.getElementById('cat-scroll-left');
+            const rightBtn = document.getElementById('cat-scroll-right');
+            if (!el || !leftBtn || !rightBtn) return;
+
+            if (el.scrollLeft > 10) {
+                leftBtn.classList.remove('hidden');
+                leftBtn.classList.add('flex');
+            } else {
+                leftBtn.classList.add('hidden');
+                leftBtn.classList.remove('flex');
+            }
+
+            if (el.scrollLeft + el.clientWidth < el.scrollWidth - 10) {
+                rightBtn.classList.remove('hidden');
+                rightBtn.classList.add('flex');
+            } else {
+                rightBtn.classList.add('hidden');
+                rightBtn.classList.remove('flex');
+            }
+        }
+
+        function setupCategoryScroll() {
+            const slider = document.getElementById('category-pills');
+            if (!slider) return;
+            let isDown = false;
+            let startX = 0;
+            let scrollLeft = 0;
+
+            slider.addEventListener('mousedown', (e) => {
+                isDown = true;
+                isCategoryDragging = false;
+                startX = e.pageX - slider.offsetLeft;
+                scrollLeft = slider.scrollLeft;
+            });
+            slider.addEventListener('mouseleave', () => { isDown = false; });
+            slider.addEventListener('mouseup', () => {
+                isDown = false;
+                setTimeout(() => { isCategoryDragging = false; }, 50);
+            });
+            slider.addEventListener('mousemove', (e) => {
+                if (!isDown) return;
+                e.preventDefault();
+                const x = e.pageX - slider.offsetLeft;
+                const walk = (x - startX) * 1.5;
+                if (Math.abs(walk) > 5) isCategoryDragging = true;
+                slider.scrollLeft = scrollLeft - walk;
+            });
+            slider.addEventListener('wheel', (e) => {
+                if (e.deltaY !== 0) {
+                    e.preventDefault();
+                    slider.scrollLeft += e.deltaY;
+                }
+            }, { passive: false });
+            slider.addEventListener('scroll', updateCategoryScrollButtons);
+            window.addEventListener('resize', updateCategoryScrollButtons);
+        }
+
+        function renderMenu() {
+            const grid = document.getElementById('menu-grid');
+            if (!grid) return;
+
+            const filtered = state.selectedCategory === 'Все'
+                ? state.menuItems
+                : state.menuItems.filter(item => item.category === state.selectedCategory);
+
+            if (filtered.length === 0) {
+                grid.innerHTML = `<div class="p-6 text-center text-xs text-zinc-500">В этой категории пока пусто</div>`;
+                return;
+            }
+
+            grid.innerHTML = filtered.map(item => `
+                <div onclick="openCustomizer('${item.id}')" class="p-3 rounded-2xl bg-brand-card hover:bg-[#222226] border border-white/10 flex items-center gap-3.5 cursor-pointer transition active:scale-[0.99]">
+                    <div class="w-16 h-16 rounded-2xl bg-brand-elevated flex items-center justify-center text-3xl shrink-0">
+                        ${item.emoji || '🌯'}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5 mb-0.5">
+                            <span class="px-1.5 py-0.5 rounded bg-brand-orange/15 text-brand-orange text-[10px] font-bold">${item.tag || item.category}</span>
+                        </div>
+                        <h4 class="font-extrabold text-sm text-white truncate">${item.title}</h4>
+                        <p class="text-[11px] text-zinc-400 line-clamp-2 mt-0.5 leading-snug">${item.description || ''}</p>
+                        <div class="mt-2 flex items-center justify-between">
+                            <span class="font-mono text-sm font-extrabold text-white">${item.price} ₽</span>
+                            <span class="px-2.5 py-1 rounded-xl bg-brand-orange/20 text-brand-orange text-xs font-bold">+ Собрать</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ==========================================
+        // КОНСТРУКТОР ШАУРМЫ И КОРЗИНА
+        // ==========================================
+        function openCustomizer(itemId) {
+            const item = state.menuItems.find(i => String(i.id) === String(itemId));
+            if (!item) return;
+
+            state.customizingItem = item;
+            state.customConfig = {
+                size: 'std',
+                sauce: SAUCES[0],
+                addons: [],
+                noOnion: false
+            };
+
+            document.getElementById('cust-emoji').textContent = item.emoji || '🌯';
+            document.getElementById('cust-title').textContent = item.title;
+            document.getElementById('cust-desc').textContent = item.description || '';
+            document.getElementById('cust-no-onion').checked = false;
+
+            selectSize('std');
+            renderSauceOptions();
+            renderAddonOptions();
+            updateCustomizerPrice();
+
+            document.getElementById('customizer-modal').classList.remove('hidden');
+        }
+
+        function closeCustomizer() {
+            document.getElementById('customizer-modal').classList.add('hidden');
+            state.customizingItem = null;
+        }
+
+        function selectSize(size) {
+            state.customConfig.size = size;
+            const stdBtn = document.getElementById('size-std');
+            const xlBtn = document.getElementById('size-xl');
+            if (size === 'std') {
+                stdBtn.className = 'p-2.5 rounded-xl border border-brand-orange bg-brand-orange/15 text-left transition';
+                xlBtn.className = 'p-2.5 rounded-xl border border-white/10 bg-brand-card text-left transition';
+            } else {
+                xlBtn.className = 'p-2.5 rounded-xl border border-brand-orange bg-brand-orange/15 text-left transition';
+                stdBtn.className = 'p-2.5 rounded-xl border border-white/10 bg-brand-card text-left transition';
+            }
+            updateCustomizerPrice();
+        }
+
+        function renderSauceOptions() {
+            const box = document.getElementById('sauce-options');
+            box.innerHTML = SAUCES.map(sauce => {
+                const active = state.customConfig.sauce === sauce;
+                return `
+                    <button type="button" onclick="selectSauce('${sauce}')" 
+                        class="p-2.5 rounded-xl border text-left text-xs font-bold transition ${
+                            active ? 'border-brand-orange bg-brand-orange/15 text-white' : 'border-white/10 bg-brand-card text-zinc-300'
+                        }">
+                        ${sauce}
+                    </button>
+                `;
+            }).join('');
+        }
+
+        function selectSauce(sauce) {
+            state.customConfig.sauce = sauce;
+            renderSauceOptions();
+        }
+
+        function renderAddonOptions() {
+            const box = document.getElementById('addon-options');
+            box.innerHTML = ADDONS.map(addon => {
+                const selected = state.customConfig.addons.includes(addon.name);
+                return `
+                    <button type="button" onclick="toggleAddon('${addon.name}')" 
+                        class="w-full p-2.5 rounded-xl border flex items-center justify-between transition ${
+                            selected ? 'border-brand-orange bg-brand-orange/15' : 'border-white/10 bg-brand-card'
+                        }">
+                        <span class="text-xs font-bold text-white">${addon.name}</span>
+                        <span class="font-mono text-xs font-bold ${selected ? 'text-brand-amber' : 'text-zinc-400'}">+${addon.price} ₽</span>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        function toggleAddon(addonName) {
+            const idx = state.customConfig.addons.indexOf(addonName);
+            if (idx > -1) state.customConfig.addons.splice(idx, 1);
+            else state.customConfig.addons.push(addonName);
+            renderAddonOptions();
+            updateCustomizerPrice();
+        }
+
+        function calculateCustomizedPrice() {
+            if (!state.customizingItem) return 0;
+            let total = Number(state.customizingItem.price) || 0;
+            if (state.customConfig.size === 'xl') total += 60;
+            state.customConfig.addons.forEach(name => {
+                const found = ADDONS.find(a => a.name === name);
+                if (found) total += found.price;
+            });
+            return total;
+        }
+
+        function updateCustomizerPrice() {
+            document.getElementById('cust-final-price').textContent = `${calculateCustomizedPrice()} ₽`;
+        }
+
+        function confirmAddToCart() {
+            if (!state.customizingItem) return;
+            const noOnion = document.getElementById('cust-no-onion').checked;
+            state.cart.push({
+                cartId: Date.now() + Math.random(),
+                title: state.customizingItem.title,
+                size: state.customConfig.size,
+                sauce: state.customConfig.sauce,
+                addons: [...state.customConfig.addons],
+                noOnion: noOnion,
+                totalPrice: calculateCustomizedPrice()
+            });
+            closeCustomizer();
+            updateCartBarUI();
+            showToast('Добавлено в предзаказ!');
+        }
+
+        function updateCartBarUI() {
+            const bar = document.getElementById('sticky-cart-bar');
+            const badge = document.getElementById('cart-count-badge');
+            const totalEl = document.getElementById('cart-total-price');
+
+            if (state.cart.length === 0) {
+                bar.classList.add('hidden');
+                return;
+            }
+            const total = state.cart.reduce((sum, item) => sum + item.totalPrice, 0);
+            badge.textContent = state.cart.length;
+            totalEl.textContent = `${total} ₽`;
+            bar.classList.remove('hidden');
+        }
+
+        function openCheckoutDrawer() {
+            if (state.cart.length === 0) return;
+            const list = document.getElementById('checkout-items-list');
+            list.innerHTML = state.cart.map((item, index) => `
+                <div class="p-3 rounded-2xl bg-brand-card border border-white/10 flex items-start justify-between gap-2">
+                    <div>
+                        <p class="text-xs font-extrabold text-white">${item.title} (${item.size === 'xl' ? 'XL' : 'Стандарт'})</p>
+                        <p class="text-[11px] text-zinc-400 mt-0.5">
+                            Соус: ${item.sauce}${item.addons.length ? ' • +' + item.addons.join(', ') : ''}${item.noOnion ? ' • БЕЗ ЛУКА' : ''}
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <span class="font-mono text-xs font-bold text-white">${item.totalPrice} ₽</span>
+                        <button onclick="removeCartItem(${index})" class="text-zinc-500 hover:text-red-400">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+
+            const total = state.cart.reduce((sum, item) => sum + item.totalPrice, 0);
+            document.getElementById('checkout-pay-btn-price').textContent = `${total} ₽`;
+            document.getElementById('checkout-modal').classList.remove('hidden');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeCheckoutDrawer() {
+            document.getElementById('checkout-modal').classList.add('hidden');
+        }
+
+        function removeCartItem(index) {
+            state.cart.splice(index, 1);
+            updateCartBarUI();
+            if (state.cart.length === 0) closeCheckoutDrawer();
+            else openCheckoutDrawer();
+        }
+
+        function clearCart() {
+            state.cart = [];
+            updateCartBarUI();
+            closeCheckoutDrawer();
+        }
+
+        function selectPickupTime(timeLabel, btnEl) {
+            state.pickupTime = timeLabel;
+            document.querySelectorAll('.pickup-time-btn').forEach(b => {
+                b.className = 'pickup-time-btn p-2 rounded-xl border border-white/10 bg-brand-card text-center';
+            });
+            btnEl.className = 'pickup-time-btn p-2 rounded-xl border border-brand-orange bg-brand-orange/15 text-center';
+        }
+
+        function selectPayment(method) {
+            state.paymentMethod = method;
+            const sbp = document.getElementById('pay-sbp');
+            const card = document.getElementById('pay-card');
+            if (method === 'sbp') {
+                sbp.className = 'p-2.5 rounded-xl border border-brand-orange bg-brand-orange/15 flex items-center gap-2';
+                card.className = 'p-2.5 rounded-xl border border-white/10 bg-brand-card flex items-center gap-2';
+            } else {
+                card.className = 'p-2.5 rounded-xl border border-brand-orange bg-brand-orange/15 flex items-center gap-2';
+                sbp.className = 'p-2.5 rounded-xl border border-white/10 bg-brand-card flex items-center gap-2';
+            }
+        }
+
+        // ==========================================
+        // ОФОРМЛЕНИЕ ЗАКАЗА В SUPABASE
+        // ==========================================
+        async function placeOrder() {
+            if (state.cart.length === 0) return;
+            const btn = document.getElementById('btn-submit-order');
+            btn.disabled = true;
+
+            const randomCode = '#' + Math.floor(100 + Math.random() * 899);
+            const totalPrice = state.cart.reduce((sum, item) => sum + item.totalPrice, 0);
+            const payloadItems = state.cart.map(item => ({
+                title: item.title,
+                size: item.size === 'xl' ? 'XL' : 'Стандарт',
+                sauce: item.sauce,
+                addons: item.addons,
+                noOnion: item.noOnion,
+                pickupTime: state.pickupTime,
+                price: item.totalPrice
+            }));
+
+            try {
+                if (state.isSandboxOffline || !db) {
+                    throw new Error('SANDBOX_OFFLINE');
+                }
+
+                const insertPayload = {
+                    order_code: randomCode,
+                    items: payloadItems,
+                    total_price: totalPrice,
+                    status: 'new'
+                };
+                if (state.activeSpot && state.activeSpot.id && !String(state.activeSpot.id).startsWith('local-')) {
+                    insertPayload.spot_id = state.activeSpot.id;
+                }
+
+                const { data, error } = await db
+                    .from('orders')
+                    .insert([insertPayload])
+                    .select()
+                    .single();
+
+                if (error) throw error;
+
+                if (data) {
+                    state.trackedOrderId = data.id;
+                    localStorage.setItem('shavago_active_order_id', data.id);
+                    state.orders.unshift(data);
+                }
+
+                state.cart = [];
+                updateCartBarUI();
+                closeCheckoutDrawer();
+                renderChefOrders();
+                syncUserOrderUI();
+                showActiveOrderModal();
+                showToast(`Заказ ${randomCode} отправлен в Supabase!`);
+            } catch (err) {
+                console.warn('Fallback order save:', err);
+                const localOrder = {
+                    id: 'local-' + Date.now(),
+                    order_code: randomCode,
+                    items: payloadItems,
+                    total_price: totalPrice,
+                    status: 'new',
+                    created_at: new Date().toISOString()
+                };
+                state.trackedOrderId = localOrder.id;
+                localStorage.setItem('shavago_active_order_id', localOrder.id);
+                state.orders.unshift(localOrder);
+                saveLocalFallbackOrders();
+
+                state.cart = [];
+                updateCartBarUI();
+                closeCheckoutDrawer();
+                renderChefOrders();
+                syncUserOrderUI();
+                showActiveOrderModal();
+                showToast(`Заказ ${randomCode} передан повару!`);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // ==========================================
+        // ТРЕКЕР ЗАКАЗА У КЛИЕНТА
+        // ==========================================
+        function getTrackedOrder() {
+            if (!state.orders || state.orders.length === 0) return null;
+            if (state.trackedOrderId) {
+                const found = state.orders.find(o => String(o.id) === String(state.trackedOrderId));
+                if (found && found.status !== 'completed') return found;
+            }
+            return state.orders.find(o => o.status !== 'completed') || null;
+        }
+
+        function syncUserOrderUI() {
+            const activeOrder = getTrackedOrder();
+            const widget = document.getElementById('live-order-widget');
+            const headerDot = document.getElementById('header-order-dot');
+
+            if (!activeOrder) {
+                if (widget) widget.classList.add('hidden');
+                if (headerDot) headerDot.classList.add('hidden');
+                return;
+            }
+
+            if (widget) widget.classList.remove('hidden');
+            if (headerDot) headerDot.classList.remove('hidden');
+
+            document.getElementById('widget-order-code').textContent = activeOrder.order_code;
+            document.getElementById('tracker-code').textContent = activeOrder.order_code;
+
+            const p1 = document.getElementById('prog-1');
+            const p2 = document.getElementById('prog-2');
+            const p3 = document.getElementById('prog-3');
+
+            const stepCooking = document.getElementById('step-cooking');
+            const stepReady = document.getElementById('step-ready');
+
+            if (activeOrder.status === 'new') {
+                document.getElementById('widget-order-status').textContent = 'Ожидает повара';
+                document.getElementById('widget-order-timer').textContent = '~10 мин';
+                document.getElementById('tracker-headline').textContent = 'Заказ оплачен и ждет повара';
+                p1.className = 'h-full w-1/3 bg-brand-orange rounded-full transition-all';
+                p2.className = 'h-full w-1/3 bg-zinc-700 rounded-full transition-all';
+                p3.className = 'h-full w-1/3 bg-zinc-700 rounded-full transition-all';
+                stepCooking.classList.add('opacity-40');
+                stepReady.classList.add('opacity-40');
+            } else if (activeOrder.status === 'cooking') {
+                document.getElementById('widget-order-status').textContent = 'Крутим на гриле 🔥';
+                document.getElementById('widget-order-timer').textContent = '~4 мин';
+                document.getElementById('tracker-headline').textContent = 'Повар уже крутит вашу шаурму!';
+                p1.className = 'h-full w-1/3 bg-brand-orange rounded-full transition-all';
+                p2.className = 'h-full w-1/3 bg-brand-orange rounded-full transition-all';
+                p3.className = 'h-full w-1/3 bg-zinc-700 rounded-full transition-all';
+                stepCooking.classList.remove('opacity-40');
+                stepReady.classList.add('opacity-40');
+            } else if (activeOrder.status === 'ready') {
+                document.getElementById('widget-order-status').textContent = 'ГОТОВО! Забирайте 🎉';
+                document.getElementById('widget-order-timer').textContent = 'У окна';
+                document.getElementById('tracker-headline').textContent = 'Шаурма готова! Забирайте без очереди';
+                p1.className = 'h-full w-1/3 bg-emerald-500 rounded-full transition-all';
+                p2.className = 'h-full w-1/3 bg-emerald-500 rounded-full transition-all';
+                p3.className = 'h-full w-1/3 bg-emerald-500 rounded-full transition-all';
+                stepCooking.classList.remove('opacity-40');
+                stepReady.classList.remove('opacity-40');
+            }
+        }
+
+        function showActiveOrderModal() {
+            const activeOrder = getTrackedOrder();
+            if (!activeOrder) {
+                showToast('У вас пока нет активного заказа');
+                return;
+            }
+            syncUserOrderUI();
+            document.getElementById('tracker-modal').classList.remove('hidden');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeTrackerModal() {
+            document.getElementById('tracker-modal').classList.add('hidden');
+        }
+
+        // ==========================================
+        // ВЫБОР ТОЧКИ
+        // ==========================================
+        function openLocationModal() {
+            const box = document.getElementById('spots-list-container');
+            box.innerHTML = state.spots.map(spot => {
+                const active = state.activeSpot && String(state.activeSpot.id) === String(spot.id);
+                return `
+                    <button type="button" onclick="selectSpot('${spot.id}')" 
+                        class="w-full p-3.5 rounded-2xl border text-left flex items-center justify-between transition ${
+                            active ? 'border-brand-orange bg-brand-orange/15' : 'border-white/10 bg-brand-card'
+                        }">
+                        <div>
+                            <p class="text-xs font-extrabold text-white">${spot.name}</p>
+                            <p class="text-[11px] text-zinc-400 mt-0.5">${spot.address}</p>
+                        </div>
+                        <span class="text-xs font-bold text-brand-orange">${active ? 'Выбрано' : 'Выбрать'}</span>
+                    </button>
+                `;
+            }).join('');
+            document.getElementById('location-modal').classList.remove('hidden');
+        }
+
+        function closeLocationModal() {
+            document.getElementById('location-modal').classList.add('hidden');
+        }
+
+        async function selectSpot(spotId) {
+            const spot = state.spots.find(s => String(s.id) === String(spotId));
+            if (spot) {
+                state.activeSpot = spot;
+                updateSpotHeaderUI();
+                await loadMenuForSpot(spot.id);
+            }
+            closeLocationModal();
+        }
+
+        // ==========================================
+        // ТЕРМИНАЛ ПОВАРА (KDS)
+        // ==========================================
+        function renderChefOrders() {
+            const container = document.getElementById('chef-orders-list');
+            const badge = document.getElementById('chef-badge');
+            const activeCountEl = document.getElementById('chef-active-count');
+            const completedCountEl = document.getElementById('chef-completed-count');
+
+            if (!container) return;
+
+            const activeOrders = state.orders.filter(o => o.status !== 'completed');
+            const completedOrders = state.orders.filter(o => o.status === 'completed');
+
+            if (activeCountEl) activeCountEl.textContent = `${activeOrders.length} в работе`;
+            if (completedCountEl) completedCountEl.textContent = `Выдано: ${completedOrders.length}`;
+
+            if (badge) {
+                if (activeOrders.length > 0) {
+                    badge.textContent = activeOrders.length;
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            }
+
+            if (activeOrders.length === 0) {
+                container.innerHTML = `
+                    <div class="p-10 text-center flex flex-col items-center justify-center gap-2 text-zinc-500">
+                        <span class="text-3xl">🥙</span>
+                        <p class="text-xs font-bold text-zinc-300">Очередь заказов пуста</p>
+                        <p class="text-[11px]">Оформите предзаказ во вкладке «Клиент (PWA)», чтобы увидеть его здесь.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = activeOrders.map(order => {
+                const items = Array.isArray(order.items) ? order.items : [];
+                const statusBadge = order.status === 'new'
+                    ? `<span class="px-2 py-0.5 rounded-md bg-red-500/20 text-red-400 text-[10px] font-black uppercase">Новый</span>`
+                    : (order.status === 'cooking'
+                        ? `<span class="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[10px] font-black uppercase">На гриле 🔥</span>`
+                        : `<span class="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase">Ждет выдачи</span>`);
+
+                const actionButton = order.status === 'new'
+                    ? `<button onclick="updateOrderStatus('${order.id}', 'cooking')" class="w-full py-3 rounded-xl bg-brand-orange hover:bg-orange-500 text-white font-extrabold text-xs shadow-lg shadow-brand-orange/20 transition active:scale-[0.98]">Принять в работу (На гриль)</button>`
+                    : (order.status === 'cooking'
+                        ? `<button onclick="updateOrderStatus('${order.id}', 'ready')" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-lg shadow-emerald-600/20 transition active:scale-[0.98]">Готово к выдаче ✅</button>`
+                        : `<button onclick="updateOrderStatus('${order.id}', 'completed')" class="w-full py-3 rounded-xl bg-zinc-700 hover:bg-zinc-600 text-white font-extrabold text-xs transition active:scale-[0.98]">Клиент забрал (Закрыть)</button>`);
+
+                return `
+                    <div class="p-4 rounded-2xl bg-[#18181B] border ${order.status === 'new' ? 'border-brand-orange/60' : 'border-white/10'} shadow-lg space-y-3">
+                        <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
+                            <div class="flex items-center gap-2">
+                                <span class="font-mono text-xl font-black text-white">${order.order_code}</span>
+                                ${statusBadge}
+                            </div>
+                            <span class="font-mono text-xs font-bold text-emerald-400">Оплачено • ${order.total_price} ₽</span>
+                        </div>
+
+                        <div class="space-y-2">
+                            ${items.map(item => `
+                                <div class="p-2.5 rounded-xl bg-brand-card border border-white/5">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-extrabold text-white">${item.title} (${item.size || 'Стандарт'})</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-1.5 mt-1.5">
+                                        <span class="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-bold">Соус: ${item.sauce || 'Чесночный'}</span>
+                                        ${(item.addons || []).map(a => `<span class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 text-[10px] font-bold">+ ${a}</span>`).join('')}
+                                        ${item.noOnion ? `<span class="px-2 py-0.5 rounded-md bg-red-500/20 text-red-300 text-[10px] font-black">БЕЗ ЛУКА</span>` : ''}
+                                    </div>
+                                    ${item.pickupTime ? `<p class="text-[10px] text-zinc-400 mt-1.5">⏰ Выдача: <strong>${item.pickupTime}</strong></p>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        ${actionButton}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function updateOrderStatus(orderId, nextStatus) {
+            try {
+                const order = state.orders.find(o => String(o.id) === String(orderId));
+                if (order) {
+                    order.status = nextStatus;
+                    renderChefOrders();
+                    syncUserOrderUI();
+                }
+
+                if (state.isSandboxOffline || !db || String(orderId).startsWith('local-')) {
+                    saveLocalFallbackOrders();
+                    return;
+                }
+
+                const { error } = await db
+                    .from('orders')
+                    .update({ status: nextStatus })
+                    .eq('id', orderId);
+
+                if (error) throw error;
+            } catch (err) {
+                console.warn('Status update error:', err);
+                saveLocalFallbackOrders();
+            }
+        }
+
+        // ==========================================
+        // ЗАПУСК ПРИЛОЖЕНИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ
+        // ==========================================
+        window.addEventListener('DOMContentLoaded', () => {
+            if (window.lucide) lucide.createIcons();
+            setupCategoryScroll();
+            initSupabaseData();
+        });
+    </script>
+</body>
+</html>
